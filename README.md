@@ -1,222 +1,210 @@
 # Implications Agent
 
-An agentic competitive intelligence tool that generates strategic "Implications" sections for pharma CI alerts, powered by Claude and a PostgreSQL + Brave Search toolset.
+A standalone agentic system that generates strategic implications for Competitive Intelligence alerts in the pharmaceutical sector.
 
 ## Overview
 
-When a news article triggers a CI alert for a client, the Implications Agent analyzes the alert in context and produces a markdown-formatted strategic assessment answering: **"What does this news mean for *this specific client*?"**
-
-The agent runs an autonomous tool-use loop — reading the triggering news, the pre-generated alert email, and the client's newsfeed metadata from a PostgreSQL database, searching for related news patterns, optionally performing web searches for external context, and then generating the final structured implications.
-
-Output follows a consistent five-section format:
-- **Strategic Impact** — 2-3 sentence executive summary
-- **Key Implications** — 3-5 specific, actionable bullet points
-- **Competitive Landscape** — how competitive dynamics shift for the client
-- **Recommended Actions** — 2-3 concrete next steps
-- **Context & Evidence** — sources that informed the analysis
-
-## Architecture
+When a CI alert is triggered for a client, this agent takes over to produce an **Implications** section — a strategic analysis of what the news means specifically for that company. It autonomously gathers context from the database and the web, then generates a markdown report.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        run.py  (CLI)                         │
-│          python run.py --news-id 123 --feed-id 67            │
-└─────────────────────────────┬───────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│             ImplicationsAgent   (agent/core.py)              │
-│                                                              │
-│  ┌───────────────┐   ┌──────────────────────────────────┐   │
-│  │ SYSTEM_PROMPT │   │    Agentic Loop  (max N turns)    │   │
-│  │ (prompts.py)  │   │                                  │   │
-│  └───────┬───────┘   │  1. Send messages → Claude API   │   │
-│          └───────────│  2. Claude returns tool_use       │   │
-│                      │  3. Execute tools, append results │   │
-│                      │  4. Repeat until text-only reply  │   │
-│                      └──────────────┬───────────────────┘   │
-└─────────────────────────────────────┼───────────────────────┘
-                                      │
-              ┌───────────────────────┼──────────────────────┐
-              ▼                       ▼                       ▼
- ┌────────────────────┐   ┌─────────────────┐   ┌──────────────────┐
- │  agent/tools/db.py │   │agent/tools/     │   │ agent/config.py  │
- │  PostgreSQL        │   │web.py           │   │ Env var config   │
- │  (6 query tools)   │   │Brave Search API │   │                  │
- └────────────────────┘   └─────────────────┘   └──────────────────┘
+Existing CI Alert Flow:
+  news → initial_analysis → key_intelligence → ci_alerts_node → [dedup] → send
+
+With Implications:
+  news → initial_analysis → key_intelligence → ci_alerts_node →
+  ┌─────────────────────────────────────────────┐
+  │          IMPLICATIONS AGENT (this project)   │
+  │                                              │
+  │  Input: news_id + feed_id                    │
+  │                                              │
+  │  Agentic Loop:                               │
+  │  ┌─────────────────────────────────────┐     │
+  │  │ LLM decides what context it needs   │     │
+  │  │         ↓                           │     │
+  │  │ Calls tools (DB queries, web search)│     │
+  │  │         ↓                           │     │
+  │  │ Receives results, decides next step │     │
+  │  │         ↓                           │     │
+  │  │ Repeats until enough context        │     │
+  │  │         ↓                           │     │
+  │  │ Generates implications markdown     │     │
+  │  └─────────────────────────────────────┘     │
+  │                                              │
+  │  Output: Markdown implications section       │
+  └─────────────────────────────────────────────┘
+  → [dedup] → send
 ```
 
-### Module Map
+## How the Agentic Loop Works
 
-```
-implications-agent/
-├── run.py                    # CLI entrypoint (argparse → ImplicationsAgent)
-├── requirements.txt          # Python dependencies
-├── .env.example              # Environment variable template
-└── agent/
-    ├── __init__.py           # Package init
-    ├── config.py             # Config class — loads .env vars
-    ├── core.py               # ImplicationsAgent + agentic loop
-    ├── prompts.py            # System prompt for the LLM
-    └── tools/
-        ├── __init__.py       # Re-exports all tools and registry
-        ├── db.py             # 6 PostgreSQL database tools
-        ├── registry.py       # Tool definitions (Anthropic format) + dispatcher
-        └── web.py            # Brave Search web tool
-```
+The architecture is inspired by Claude Code and OpenClaw — a tool-calling LLM loop:
+
+1. The agent sends the task (`news_id` + `feed_id`) to the LLM with available tools
+2. The LLM decides which tool(s) to call based on what context it needs
+3. Tools execute (DB queries, web searches) and return results
+4. Results are fed back to the LLM
+5. The LLM either calls more tools or generates the final output
+6. Loop continues until the LLM produces text (the implications) or hits max turns
+
+The LLM is the decision-maker — it decides the order of tool calls, what to search for, and when it has enough context. This means the agent adapts to each alert: some may need extensive research, others may have enough context in the DB.
+
+## Available Tools
+
+| Tool | Source | Description |
+|------|--------|-------------|
+| `get_news` | PostgreSQL | Get full news article content by ID |
+| `search_news` | PostgreSQL (FTS) | Full-text search across all news articles |
+| `search_news_for_feed` | PostgreSQL (FTS) | Search news linked to a specific client feed |
+| `get_newsfeed_context` | PostgreSQL | Get newsfeed metadata: company, product, indication, keywords, priority |
+| `get_alert_email` | PostgreSQL | Get the alert email already generated for this news+feed |
+| `get_recent_alerts` | PostgreSQL | Get recent alerts sent to this client with news context |
+| `web_search` | Brave API | Search the web for company pipelines, regulatory actions, etc. |
 
 ## Setup
 
 ### Prerequisites
 
-- Python 3.9+
-- PostgreSQL database with the `platform_v3` schema
+- Python 3.10+
+- PostgreSQL access (Platform v3 database)
 - Anthropic API key
-- (Optional) Brave Search API key — enables the `web_search` tool
+- Brave Search API key (optional, for web search)
 
-### Installation
+### Install
 
 ```bash
-# Clone the repo
-git clone <repo-url>
+git clone git@github.com:lpatrocinio-avizum/implications-agent.git
 cd implications-agent
-
-# Create and activate a virtual environment
-python -m venv .venv
-source .venv/bin/activate     # Windows: .venv\Scripts\activate
-
-# Install dependencies
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env
-# Edit .env and fill in your credentials
 ```
+
+### Configure
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your credentials:
+
+```env
+# Database (Platform v3 PostgreSQL)
+DB_HOST=your-db-host
+DB_PORT=5432
+DB_NAME=platform_v3
+DB_USER=your-user
+DB_PASSWORD=your-password
+
+# Anthropic API
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Web Search (optional)
+BRAVE_API_KEY=your-brave-key
+```
+
+**Note:** The database is behind an AWS VPN. You must be connected to the VPN or have a tunnel configured.
 
 ## Usage
 
-```bash
-python run.py --news-id <NEWS_ID> --feed-id <FEED_ID> [options]
-```
-
-### CLI Options
-
-| Flag | Type | Default | Description |
-|---|---|---|---|
-| `--news-id` | int | **required** | ID of the triggering news article |
-| `--feed-id` | int | **required** | Feed ID (client identifier) |
-| `--model` | str | from `.env` | Anthropic model override |
-| `--max-turns` | int | `15` | Max agent turns before aborting |
-| `--verbose` | flag | off | Print each tool call and response preview |
-
-### Examples
+### Basic
 
 ```bash
-# Basic usage
 python run.py --news-id 12345 --feed-id 67
-
-# Verbose mode — shows each tool call as it happens
-python run.py --news-id 12345 --feed-id 67 --verbose
-
-# Use a specific model
-python run.py --news-id 12345 --feed-id 67 --model claude-opus-4-20250514
-
-# Limit to 5 turns (faster, less thorough)
-python run.py --news-id 12345 --feed-id 67 --max-turns 5
 ```
 
-### Output
+### Verbose (trace tool calls)
 
+```bash
+python run.py --news-id 12345 --feed-id 67 --verbose
+```
+
+Verbose output shows each tool call and response:
 ```
 🔍 Generating implications for news_id=12345, feed_id=67...
+
+--- Turn 1 ---
+  🔧 get_news({"news_id": 12345})
+  ← {"news_id": 12345, "title": "FDA Approves...", ...}
+  🔧 get_newsfeed_context({"news_id": 12345, "feed_id": 67})
+  ← {"company": "Novartis", "product": "Kisqali", ...}
+
+--- Turn 2 ---
+  🔧 get_recent_alerts({"feed_id": 67, "limit": 5})
+  ← [{"alert_title": "...", ...}]
+
+--- Turn 3 ---
+  🔧 web_search({"query": "Novartis Kisqali pipeline 2026"})
+  ← [{"title": "...", "url": "..."}]
+
+✅ Agent finished after 4 turns
 
 ============================================================
 IMPLICATIONS
 ============================================================
 ### Strategic Impact
 ...
+```
 
-### Key Implications
-- ...
+### Custom model
 
-### Competitive Landscape
-...
+```bash
+python run.py --news-id 12345 --feed-id 67 --model claude-sonnet-4-20250514
+```
 
-### Recommended Actions
-- ...
+### Max turns
 
-### Context & Evidence
-...
+```bash
+python run.py --news-id 12345 --feed-id 67 --max-turns 20
 ```
 
 ## Configuration Reference
 
-All settings are loaded from `.env` (or environment variables). Copy `.env.example` to `.env` to get started.
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `ANTHROPIC_API_KEY` | **Yes** | — | Anthropic API key |
-| `ANTHROPIC_MODEL` | No | `claude-sonnet-4-20250514` | Default Claude model |
-| `DB_HOST` | No | `localhost` | PostgreSQL host |
+| Env Variable | Required | Default | Description |
+|-------------|----------|---------|-------------|
+| `DB_HOST` | Yes | `localhost` | PostgreSQL host |
 | `DB_PORT` | No | `5432` | PostgreSQL port |
-| `DB_NAME` | No | `platform_v3` | Database name |
-| `DB_USER` | **Yes** | — | Database username |
-| `DB_PASSWORD` | **Yes** | — | Database password |
-| `BRAVE_API_KEY` | No | — | Brave Search API key (web search disabled if unset) |
+| `DB_NAME` | Yes | `platform_v3` | Database name |
+| `DB_USER` | Yes | — | Database user |
+| `DB_PASSWORD` | Yes | — | Database password |
+| `ANTHROPIC_API_KEY` | Yes | — | Anthropic API key |
+| `ANTHROPIC_MODEL` | No | `claude-sonnet-4-20250514` | Model to use |
+| `BRAVE_API_KEY` | No | — | Brave Search API key (web search disabled without it) |
 
-> **Note:** If `BRAVE_API_KEY` is not set, the `web_search` tool returns an informative error and the agent continues with database-only context.
+## Database Schema
 
-## Tools
+The agent reads from three tables in the `public` schema:
 
-The agent has 7 tools registered in `agent/tools/registry.py`. Six query the PostgreSQL database; one performs live web search.
+- **`news`** — News article content. Has `search_content` tsvector for full-text search.
+- **`news_feed`** — Junction table linking news to client feeds. Contains metadata: `company`, `product`, `indication`, `match` (keywords), `summary`, `news_priority_id` (6 = alert).
+- **`news_alert_emails`** — Alert emails already generated. Contains `alert_title` and `body`.
 
-### Database Tools (`agent/tools/db.py`)
-
-| Tool | Parameters | Description |
-|---|---|---|
-| `get_news` | `news_id` | Fetch full news article by ID — title, body, summary, URL, publish date |
-| `search_news` | `query`, `limit=10` | Full-text search across all news via PostgreSQL `websearch_to_tsquery` |
-| `search_news_for_feed` | `query`, `feed_id`, `limit=10` | Full-text search scoped to news linked to a specific client feed |
-| `get_newsfeed_context` | `news_id`, `feed_id` | Newsfeed metadata — company, product, indication, matched keywords, priority |
-| `get_alert_email` | `news_id`, `feed_id` | The pre-generated alert email for this news+feed pair |
-| `get_recent_alerts` | `feed_id`, `limit=10` | Recent alert emails sent to a feed — useful for detecting patterns |
-
-### Web Tool (`agent/tools/web.py`)
-
-| Tool | Parameters | Description |
-|---|---|---|
-| `web_search` | `query`, `count=5` | Brave Search API — returns title, URL, and snippet for each result |
-
-## How the Agent Loop Works
-
-The core loop in `ImplicationsAgent.run()` (`agent/core.py`) implements the standard Anthropic tool-use pattern:
+## Project Structure
 
 ```
-User message (news_id + feed_id)
-         │
-         ▼
-  ┌──────────────────┐
-  │  Claude API call  │ ◄──────────────────────────────┐
-  └────────┬─────────┘                                 │
-           │                                           │
-    ┌──────┴───────┐                                   │
-    │ tool_use     │                                   │
-    │ blocks only? │                                   │
-    └──────┬───────┘                                   │
-           │                                           │
-      Yes  ▼              No ▼                         │
-   Execute each tool   Return final text               │
-   via execute_tool()  ← DONE                         │
-           │                                           │
-           │  Append tool results as user message      │
-           └───────────────────────────────────────────┘
+implications-agent/
+├── agent/
+│   ├── __init__.py
+│   ├── core.py           # Agentic loop — LLM tool-calling loop
+│   ├── config.py         # Configuration from environment variables
+│   ├── prompts.py        # System prompt (pharma CI analyst persona)
+│   └── tools/
+│       ├── __init__.py
+│       ├── db.py         # 6 PostgreSQL tools
+│       ├── web.py        # Brave web search tool
+│       └── registry.py   # Tool definitions (Anthropic format) + dispatch
+├── run.py                # CLI entrypoint
+├── requirements.txt
+├── .env.example
+├── .gitignore
+└── README.md
 ```
 
-1. The agent is seeded with a user message containing `news_id` and `feed_id`.
-2. Claude receives the system prompt and the message history, then decides which tools to call.
-3. Each tool call is dispatched through `execute_tool()` in `agent/tools/registry.py`, which wraps each tool function and serializes its output to JSON.
-4. Tool results are appended to the message history as a `user`-role message (per the Anthropic tool-use protocol).
-5. Steps 2–4 repeat until Claude produces a response with **only text blocks** (no `tool_use` blocks) — this is the final implications output.
-6. If `max_turns` is exhausted without a text-only response, an error string is returned instead.
+## Output Format
 
-The agent prompt (`agent/prompts.py`) steers Claude through a specific research workflow: orient with `get_news` and `get_alert_email`, gather client context with `get_newsfeed_context`, detect patterns with `search_news_for_feed` and `get_recent_alerts`, then optionally call `web_search` before generating the structured output.
+The agent produces markdown with these sections:
+
+- **Strategic Impact** — 2-3 sentence executive summary
+- **Key Implications** — 3-5 specific, actionable bullet points tied to the client's context
+- **Competitive Landscape** — How the news shifts competitive dynamics
+- **Recommended Actions** — 2-3 concrete next steps
+- **Context & Evidence** — Sources that informed the analysis

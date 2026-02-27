@@ -1,3 +1,5 @@
+"""Application configuration loaded from environment variables."""
+
 import os
 from dotenv import load_dotenv
 
@@ -5,6 +7,7 @@ load_dotenv()
 
 
 class Config:
+    """Central config — all values from env vars with sensible defaults."""
     """Application configuration loaded from environment variables.
 
     All values are read at import time from the process environment (or a
