@@ -10,6 +10,7 @@ from agent.config import Config
 
 
 def _get_conn():
+    """Open and return a new psycopg2 connection using the configured DSN."""
     return psycopg2.connect(Config.db_dsn())
 
 

@@ -13,6 +13,12 @@ from agent.core import ImplicationsAgent
 
 
 def main():
+    """Parse CLI arguments and run the Implications Agent.
+
+    Reads ``--news-id`` and ``--feed-id`` from the command line, constructs
+    an :class:`~agent.core.ImplicationsAgent`, runs the agentic loop, and
+    prints the resulting implications markdown to stdout.
+    """
     parser = argparse.ArgumentParser(description="Generate alert implications")
     parser.add_argument("--news-id", type=int, required=True, help="News article ID")
     parser.add_argument("--feed-id", type=int, required=True, help="Feed ID (client)")

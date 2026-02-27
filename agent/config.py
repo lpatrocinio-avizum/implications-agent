@@ -5,6 +5,12 @@ load_dotenv()
 
 
 class Config:
+    """Application configuration loaded from environment variables.
+
+    All values are read at import time from the process environment (or a
+    ``.env`` file loaded by ``python-dotenv``).  Sensible defaults are
+    provided where possible; credentials must be supplied explicitly.
+    """
     # Database
     DB_HOST = os.getenv("DB_HOST", "localhost")
     DB_PORT = int(os.getenv("DB_PORT", "5432"))
@@ -21,4 +27,5 @@ class Config:
 
     @classmethod
     def db_dsn(cls) -> str:
+        """Return a libpq-compatible PostgreSQL connection string."""
         return f"postgresql://{cls.DB_USER}:{cls.DB_PASSWORD}@{cls.DB_HOST}:{cls.DB_PORT}/{cls.DB_NAME}"

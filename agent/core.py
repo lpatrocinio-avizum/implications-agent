@@ -15,6 +15,16 @@ from agent.tools.registry import TOOLS, execute_tool
 
 class ImplicationsAgent:
     def __init__(self, model: str | None = None, max_turns: int = 15, verbose: bool = False):
+        """Initialise the agent.
+
+        Args:
+            model: Anthropic model ID to use.  Defaults to ``Config.MODEL``
+                (``ANTHROPIC_MODEL`` env var, or ``claude-sonnet-4-20250514``).
+            max_turns: Maximum number of tool-use / response round-trips before
+                the loop is aborted and an error string is returned.
+            verbose: When ``True``, print each tool call name + arguments and
+                a short preview of the result to stdout.
+        """
         self.client = anthropic.Anthropic(api_key=Config.ANTHROPIC_API_KEY)
         self.model = model or Config.MODEL
         self.max_turns = max_turns
