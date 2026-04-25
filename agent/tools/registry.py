@@ -1,7 +1,7 @@
 """Tool registry — maps tool definitions for the LLM and dispatches execution."""
 
 import json
-from agent.tools import db, web
+from agent.tools import db, fda, web
 
 # Tool definitions in Anthropic's tool format
 TOOLS = [
@@ -78,6 +78,52 @@ TOOLS = [
         },
     },
     {
+        "name": "resolve_drug",
+        "description": "Normalize a drug name (brand, generic, or informal) to canonical identifiers using RxNorm. Returns RxCUI, generic name, brand names, ingredients, and drug class. Use this first when a news article mentions a drug to get reliable identifiers for other lookups.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "drug_name": {"type": "string", "description": "Drug name as mentioned in the news (brand, generic, or informal)"}
+            },
+            "required": ["drug_name"],
+        },
+    },
+    {
+        "name": "get_drug_label",
+        "description": "Get FDA-approved prescribing information for a drug (indications, dosing, warnings, contraindications, adverse reactions, clinical studies). Use to compare a competitor's approved label against the client's product.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "drug_name": {"type": "string", "description": "Brand or generic drug name (use resolve_drug first for best results)"}
+            },
+            "required": ["drug_name"],
+        },
+    },
+    {
+        "name": "get_adverse_events",
+        "description": "Get top reported adverse events for a drug from FDA FAERS database. Use to assess a competitor's real-world safety profile.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "drug_name": {"type": "string", "description": "Brand or generic drug name"},
+                "limit": {"type": "integer", "description": "Number of top adverse reactions to return (default 10)", "default": 10},
+            },
+            "required": ["drug_name"],
+        },
+    },
+    {
+        "name": "get_drug_recalls",
+        "description": "Check for recent FDA recalls, withdrawals, or enforcement actions on a drug. Active recalls are major competitive events.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "drug_name": {"type": "string", "description": "Brand or generic drug name"},
+                "limit": {"type": "integer", "description": "Number of recent recalls to return (default 5)", "default": 5},
+            },
+            "required": ["drug_name"],
+        },
+    },
+    {
         "name": "web_search",
         "description": "Search the web for additional context about a company, drug, pipeline, regulatory action, etc. Use when DB context is insufficient.",
         "input_schema": {
@@ -100,6 +146,10 @@ _TOOL_FNS = {
     "get_alert_email": db.get_alert_email,
     "get_recent_alerts": db.get_recent_alerts,
     "web_search": web.web_search,
+    "resolve_drug": fda.resolve_drug,
+    "get_drug_label": fda.get_drug_label,
+    "get_adverse_events": fda.get_adverse_events,
+    "get_drug_recalls": fda.get_drug_recalls,
 }
 
 
